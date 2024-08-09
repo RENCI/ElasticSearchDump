@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/RENCI/GoUtils/Collections"
+	"github.com/RENCI/GoUtils/Convert"
 	"github.com/RENCI/GoUtils/FileSystem"
 	"io"
 	"log"
@@ -27,6 +28,8 @@ var (
 	size              *string
 	curent_file_index = 1
 	wg                sync.WaitGroup
+	base_url          string
+	scroll_url        string
 )
 
 func main() {
@@ -36,92 +39,105 @@ func main() {
 	host = flag.String("host", "localhost", "ES host")
 	index_name = flag.String("index", "", "index name")
 	split = flag.Int("split", 1000, "split size")
-	limit = flag.Int("limit", 1115, "limit")
+	limit = flag.Int("limit", 1000, "limit")
 	timeout = flag.String("timeout", "1m", "timeout")
-	size = flag.String("size", "100", "size")
-	output_path = flag.String("output", "./", "output path")
+	size = flag.String("fetchsize", "1000", "fetch size")
+	output_path = flag.String("output", "./output", "output path")
 
 	flag.Parse()
-
-	if *split < 1 {
-		log.Fatal("split parameter must be more than 1")
-	}
-	dumpFromES()
-}
-
-func dumpFromES() {
+	base_url = "https://" + *user + ":" + *password + "@" + *host + ":" + *port + "/"
+	scroll_url = base_url + *index_name + "/_search?scroll=" + *timeout + "&size=" + *size
 
 	println("ElasticSearchDump started")
-	base_url := "https://" + *user + ":" + *password + "@" + *host + ":" + *port + "/"
-	url := base_url + *index_name + "/_search?scroll=" + *timeout + "&size=" + *size
 
+	if *split == 0 {
+		GetAndSaveInOneFile()
+
+	} else {
+		GetAndSaveInMultipleFiles()
+	}
+	// TODO: add scroll_id delete call
+	println("ElasticSearchDump finished")
+
+}
+
+func GetAndSaveInOneFile() {
+	all_items := Collections.NewList[any]()
+	scroll_id := GetFirstBatch(scroll_url, all_items)
+	i := 1
+	println(Convert.IntToString(i) + " Loaded " + Convert.IntToString(all_items.Size()) + " items")
+	i++
+	for {
+		items_slice, err := GetNextBatch(base_url, scroll_id)
+
+		if err != nil {
+			log.Fatal(err)
+		}
+		if len(items_slice) == 0 {
+			break
+		}
+
+		all_items.AddRange(items_slice)
+
+		println(Convert.IntToString(i) + " Loaded " + Convert.IntToString(all_items.Size()) + " items")
+		i++
+	}
+	println(all_items.Size())
+	SaveToFile(all_items)
+}
+
+func GetAndSaveInMultipleFiles() {
 	ch := make(chan any, *split)
 
-	total_loaded := 0
-	all_items := Collections.NewList[any]()
-
-	scroll_id := GetFirstBatch(url, all_items)
-	total_loaded += all_items.Size()
-
 	wg.Add(2)
-	go SaveToFile(ch)
 	go func() {
 		defer wg.Done()
-		if total_loaded > *limit {
-			all_items = all_items.GetRange(0, *limit)
-		}
-		all_items.ForEach(func(item any) {
-			ch <- item
-		})
+		all_items := Collections.NewList[any]()
+		scroll_id := GetFirstBatch(scroll_url, all_items)
 
-		all_items.Clear()
-
-		for total_loaded < *limit {
-			items_slice, err := GetNextBatch(base_url, scroll_id)
-
-			if err != nil {
-				log.Fatal(err)
-			}
-			all_items.AddRange(items_slice)
-			new_total := total_loaded + all_items.Size()
-
-			if new_total > *limit {
-				all_items = all_items.GetRange(0, *limit-total_loaded)
-				total_loaded = new_total
-			}
-
-			if len(items_slice) == 0 {
+		for {
+			if all_items.Size() == 0 {
 				break
 			}
 			all_items.ForEach(func(item any) {
 				ch <- item
 			})
+			items_slice, err := GetNextBatch(base_url, scroll_id)
+
+			if err != nil {
+				log.Fatal(err)
+			}
 
 			all_items.Clear()
+			all_items.AddRange(items_slice)
 		}
 		close(ch)
 	}()
+	go func() {
+		defer wg.Done()
+		all_items := Collections.NewList[any]()
+		for item := range ch {
+			all_items.Add(item)
+			if all_items.Size() == *split {
+				SaveToFile(all_items)
+				all_items.Clear()
+			}
+		}
+		if all_items.Size() > 0 {
+			SaveToFile(all_items)
+			all_items.Clear()
+		}
+	}()
+
 	wg.Wait()
-	// TODO: add scroll_id delete call
-	println("ElasticSearchDump finished")
 }
 
-func SaveToFile(items chan any) {
-	defer wg.Done()
-	for c_item := range items {
-		all_items := Collections.NewList[any]()
-		all_items.Add(c_item)
-
-		n_in_chan := len(items)
-		for i := 1; i < *split && i <= n_in_chan; i++ {
-			all_items.Add(<-items)
-		}
-		output_path := FileSystem.Path.Combine(*output_path, *index_name+"_"+fmt.Sprintf("%06d", curent_file_index)+"_export"+".json")
-		all_items_dict := map[string]any{"all_hits": all_items.ToSlice()}
-		SaveDictToFileJson(all_items_dict, output_path)
-		curent_file_index++
-	}
-
+func SaveToFile(items Collections.List[any]) {
+	output_path := FileSystem.Path.Combine(*output_path, *index_name+"_"+fmt.Sprintf("%06d", curent_file_index)+"_export"+".json")
+	all_items_dict := map[string]any{"all_hits": items.ToSlice()}
+	SaveDictToFileJson(all_items_dict, output_path)
+	println(Convert.IntToString(curent_file_index) + " Saved to " + output_path)
+	curent_file_index++
 }
 
 func SaveDictToFileJson(all_items_dict map[string]any, output_path string) {
