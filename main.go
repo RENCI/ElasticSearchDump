@@ -1,17 +1,14 @@
 package main
 
 import (
-	"bytes"
-	"crypto/tls"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/RENCI/GoUtils/Collections"
 	"github.com/RENCI/GoUtils/Convert"
 	"github.com/RENCI/GoUtils/FileSystem"
-	"io"
+	"github.com/RENCI/GoUtils/Networking"
 	"log"
-	"net/http"
 	"sync"
 )
 
@@ -155,7 +152,7 @@ func SaveDictToFileJson(all_items_dict map[string]any, output_path string) {
 
 func GetNextBatch(base_url string, scroll_id string) ([]any, error) {
 	url_scroll := base_url + "_search/scroll"
-	res, err := MakePostRequest(url_scroll, map[string]any{"scroll_id": scroll_id, "scroll": "1m"})
+	res, err := Networking.HttpPost(url_scroll, map[string]any{"scroll_id": scroll_id, "scroll": "1m"})
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +171,7 @@ func GetNextBatch(base_url string, scroll_id string) ([]any, error) {
 }
 
 func GetFirstBatch(url string, all_items Collections.List[any]) string {
-	res, _ := MakeGetRequest(url)
+	res, _ := Networking.HttpGet(url)
 	data, _ := MapFromJson(res)
 
 	scroll_id := data["_scroll_id"].(string)
@@ -197,51 +194,4 @@ func MapFromJson(jsondata []byte) (map[string]any, error) {
 func MapToJson(data map[string]any) ([]byte, error) {
 	res, err := json.MarshalIndent(data, "", "  ") //json.Marshal(data)
 	return res, err
-}
-
-func MakeGetRequest(url string) ([]byte, error) {
-	client := GetHttpClientWithNoTLSCheck()
-	resp, err := client.Get(url)
-	if err != nil {
-		return nil, err
-	}
-
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return body, err
-}
-
-func MakePostRequest(url string, reqbody map[string]any) ([]byte, error) {
-	client := GetHttpClientWithNoTLSCheck()
-	jsonValue, err := json.Marshal(reqbody)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := client.Post(url, "application/json", bytes.NewBuffer(jsonValue))
-	if err != nil {
-		return nil, err
-	}
-
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	return body, err
-}
-
-func GetHttpClientWithNoTLSCheck() *http.Client {
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-	client := &http.Client{Transport: tr}
-	return client
 }
