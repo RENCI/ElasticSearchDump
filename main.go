@@ -37,7 +37,7 @@ func main() {
 	port = flag.String("port", "9200", "ES port")
 	host = flag.String("host", "localhost", "ES host")
 	index_name = flag.String("index", "", "index name")
-	split = flag.Int("split", 0, "split size")
+	split = flag.Int("split", 1000, "split size")
 	limit = flag.Int("limit", 0, "limit")
 	timeout = flag.String("timeout", "1m", "timeout")
 	fetchsize = flag.String("fetchsize", "1000", "fetch size")
@@ -78,6 +78,7 @@ func GetAndSaveInOneFile() {
 	i++
 	for {
 		items, err := GetNextBatch(base_url, scroll_id)
+		items.ForEach(func(item interface{}) { all_items.Add(item) })
 
 		if err != nil {
 			log.Fatal(err)
