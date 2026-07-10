@@ -21,13 +21,15 @@ var (
 	index_name        *string
 	split             *int
 	limit             *int
-	output_path       *string
+	path              *string
 	timeout           *string
 	fetchsize         *string
 	curent_file_index = 1
 	wg                sync.WaitGroup
 	base_url          string
 	scroll_url        string
+	index_url         string
+	action            *string
 	https             *bool
 )
 
@@ -42,7 +44,8 @@ func main() {
 	timeout = flag.String("timeout", "1m", "timeout")
 	fetchsize = flag.String("fetchsize", "1000", "fetch size")
 	https = flag.Bool("https", true, "Use HTTPS")
-	output_path = flag.String("output", "./output", "output path")
+	path = flag.String("path", "./output", "path")
+	action = flag.String("action", "", "export or import")
 
 	flag.Parse()
 	if *https == true {
@@ -51,18 +54,58 @@ func main() {
 		base_url = "http://" + *user + ":" + *password + "@" + *host + ":" + *port + "/"
 	}
 	scroll_url = base_url + *index_name + "/_search?scroll=" + *timeout + "&size=" + *fetchsize
+	index_url = base_url + *index_name
 
 	println("ElasticSearchDump started")
 
-	if *split == 0 {
-		GetAndSaveInOneFile()
+	if *action == "export" {
+		if *split == 0 {
+			GetAndSaveInOneFile()
 
-	} else {
-		GetAndSaveInMultipleFiles()
+		} else {
+			GetAndSaveInMultipleFiles()
+		}
+	} else if *action == "import" {
+		files, err := GetFiles()
+
+		if err != nil {
+			log.Fatal(err)
+			return
+		}
+
+		files.ForEach(func(item FileSystem.FileInfo) {
+			items, err2 := GetDictFromFileJson(item)
+			if err2 != nil {
+				log.Fatal(err2)
+				return
+			}
+			all_items := items["all_hits"].([]interface{})
+
+			for _, item := range all_items {
+				_ = item
+				err := PutItemsToIndex(item.(map[string]any))
+				if err != nil {
+					log.Fatal(err)
+					return
+				}
+			}
+
+		})
 	}
+
 	// TODO: add scroll_id delete call
 	println("ElasticSearchDump finished")
 
+}
+
+func PutItemsToIndex(item map[string]any) error {
+	cur_url := index_url + "/_create/" + item["id"].(string)
+	res, err := Networking.HttpPost(cur_url, item)
+	if err != nil {
+		return err
+	}
+	println(res)
+	return nil
 }
 
 func GetAndSaveInOneFile() {
@@ -145,11 +188,28 @@ func GetAndSaveInMultipleFiles() {
 }
 
 func SaveToFile(items Collections.List[any]) {
-	output_path := FileSystem.Path.Combine(*output_path, *index_name+"_"+fmt.Sprintf("%06d", curent_file_index)+"_export"+".json")
-	all_items_dict := map[string]any{"all_hits": items.ToSlice()}
+	output_path := FileSystem.Path.Combine(*path, *index_name+"_"+fmt.Sprintf("%06d", curent_file_index)+"_export"+".json")
+	all_items_dict := map[string]any{
+		"index_name": *index_name,
+		"all_hits":   items.ToSlice(),
+	}
 	SaveDictToFileJson(all_items_dict, output_path)
 	println(Convert.IntToString(curent_file_index) + " Saved to " + output_path)
 	curent_file_index++
+}
+
+func GetFiles() (Collections.List[FileSystem.FileInfo], error) {
+	di := FileSystem.DirectoryInfo_New(*path)
+	files, err := di.GetFiles()
+
+	if err != nil {
+		log.Fatal(err)
+		return files, err
+	}
+
+	log.Printf("Found {%d} files", files.Size())
+
+	return files, nil
 }
 
 func SaveDictToFileJson(all_items_dict map[string]any, output_path string) {
@@ -163,6 +223,17 @@ func SaveDictToFileJson(all_items_dict map[string]any, output_path string) {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func GetDictFromFileJson(file FileSystem.FileInfo) (map[string]any, error) {
+	bs, err := file.ReadBytes()
+	jsonres, err := MapFromJson(bs)
+	if err != nil {
+		log.Fatal(err)
+		return nil, err
+	}
+
+	return jsonres, nil
 }
 
 func GetNextBatch(base_url string, scroll_id string) (Collections.List[any], error) {
