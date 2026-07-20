@@ -1,3 +1,5 @@
+// compile with
+// CGO_ENABLED=0 go build -ldflags="-extldflags=-static" -o esdump .
 package main
 
 import (
@@ -5,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 
 	"github.com/RENCI/GoUtils/Collections"
@@ -18,7 +21,7 @@ var (
 	password          *string
 	port              *string
 	host              *string
-	index_name        *string
+	index_names       *string
 	split             *int
 	limit             *int
 	path              *string
@@ -27,18 +30,18 @@ var (
 	curent_file_index = 1
 	wg                sync.WaitGroup
 	base_url          string
-	scroll_url        string
-	index_url         string
 	action            *string
 	https             *bool
 )
 
 func main() {
+	println("ElasticSearchDump started")
+
 	user = flag.String("user", "elastic", "ES username for basic auth")
 	password = flag.String("password", "elastic", "ES password for basic auth")
 	port = flag.String("port", "9200", "ES port")
 	host = flag.String("host", "localhost", "ES host")
-	index_name = flag.String("index", "", "index name")
+	index_names = flag.String("index", "", "index names")
 	split = flag.Int("split", 1000, "split size")
 	limit = flag.Int("limit", 0, "limit")
 	timeout = flag.String("timeout", "1m", "timeout")
@@ -48,22 +51,31 @@ func main() {
 	action = flag.String("action", "", "export or import")
 
 	flag.Parse()
+
 	if *https == true {
 		base_url = "https://" + *user + ":" + *password + "@" + *host + ":" + *port + "/"
 	} else {
 		base_url = "http://" + *user + ":" + *password + "@" + *host + ":" + *port + "/"
 	}
-	scroll_url = base_url + *index_name + "/_search?scroll=" + *timeout + "&size=" + *fetchsize
-	index_url = base_url + *index_name
-
-	println("ElasticSearchDump started")
 
 	if *action == "export" {
-		if *split == 0 {
-			GetAndSaveInOneFile()
+		index := strings.Split(*index_names, " ")
 
-		} else {
-			GetAndSaveInMultipleFiles()
+		for _, s := range index {
+			cur_index := strings.TrimSpace(s)
+
+			if len(cur_index) == 0 {
+				continue
+			}
+
+			scroll_url := base_url + cur_index + "/_search?scroll=" + *timeout + "&size=" + *fetchsize
+
+			if *split == 0 {
+				GetAndSaveInOneFile(scroll_url, cur_index)
+
+			} else {
+				GetAndSaveInMultipleFiles(scroll_url, cur_index)
+			}
 		}
 	} else if *action == "import" {
 		files, err := GetFiles()
@@ -73,32 +85,39 @@ func main() {
 			return
 		}
 
-		files.ForEach(func(item FileSystem.FileInfo) {
-			items, err2 := GetDictFromFileJson(item)
-			if err2 != nil {
-				log.Fatal(err2)
-				return
-			}
-			all_items := items["all_hits"].([]interface{})
-
-			for _, item := range all_items {
-				_ = item
-				err := PutItemsToIndex(item.(map[string]any))
-				if err != nil {
-					log.Fatal(err)
-					return
-				}
-			}
-
-		})
+		ImportFiles(files, base_url)
+	} else {
+		log.Fatal("no action specified")
 	}
 
-	// TODO: add scroll_id delete call
 	println("ElasticSearchDump finished")
 
 }
 
-func PutItemsToIndex(item map[string]any) error {
+func ImportFiles(files Collections.List[FileSystem.FileInfo], base_url string) {
+	files.ForEach(func(item FileSystem.FileInfo) {
+		items, err2 := GetDictFromFileJson(item)
+		if err2 != nil {
+			log.Fatal(err2)
+			return
+		}
+		all_items := items["all_hits"].([]interface{})
+		index_name := items["index_name"].(string)
+		index_url := base_url + index_name
+
+		for _, item := range all_items {
+			_ = item
+			err := PutItemsToIndex(index_url, item.(map[string]any))
+			if err != nil {
+				log.Fatal(err)
+				return
+			}
+		}
+
+	})
+}
+
+func PutItemsToIndex(index_url string, item map[string]any) error {
 	cur_url := index_url + "/_create/" + item["id"].(string)
 	res, err := Networking.HttpPost(cur_url, item)
 	if err != nil {
@@ -108,7 +127,7 @@ func PutItemsToIndex(item map[string]any) error {
 	return nil
 }
 
-func GetAndSaveInOneFile() {
+func GetAndSaveInOneFile(scroll_url string, index_name string) {
 	scroll_id, all_items, err := GetFirstBatch(scroll_url)
 
 	if err != nil {
@@ -134,10 +153,10 @@ func GetAndSaveInOneFile() {
 		i++
 	}
 	println(all_items.Size())
-	SaveToFile(all_items)
+	SaveToFile(index_name, all_items)
 }
 
-func GetAndSaveInMultipleFiles() {
+func GetAndSaveInMultipleFiles(scroll_url string, index_name string) {
 	ch := make(chan any, *split)
 
 	wg.Add(2)
@@ -174,12 +193,12 @@ func GetAndSaveInMultipleFiles() {
 		for item := range ch {
 			all_items.Add(item)
 			if all_items.Size() == *split {
-				SaveToFile(all_items)
+				SaveToFile(index_name, all_items)
 				all_items.Clear()
 			}
 		}
 		if all_items.Size() > 0 {
-			SaveToFile(all_items)
+			SaveToFile(index_name, all_items)
 			all_items.Clear()
 		}
 	}()
@@ -187,10 +206,10 @@ func GetAndSaveInMultipleFiles() {
 	wg.Wait()
 }
 
-func SaveToFile(items Collections.List[any]) {
-	output_path := FileSystem.Path.Combine(*path, *index_name+"_"+fmt.Sprintf("%06d", curent_file_index)+"_export"+".json")
+func SaveToFile(index_name string, items Collections.List[any]) {
+	output_path := FileSystem.Path.Combine(*path, index_name+"_"+fmt.Sprintf("%06d", curent_file_index)+"_export"+".json")
 	all_items_dict := map[string]any{
-		"index_name": *index_name,
+		"index_name": index_name,
 		"all_hits":   items.ToSlice(),
 	}
 	SaveDictToFileJson(all_items_dict, output_path)
@@ -256,10 +275,10 @@ func GetNextBatch(base_url string, scroll_id string) (Collections.List[any], err
 
 func GetFirstBatch(url string) (string, Collections.List[any], error) {
 	all_items := Collections.NewList[any]()
-	res, _ := Networking.HttpGet(url)
+	res, err := Networking.HttpGet(url)
 
 	if res == nil {
-		return "", all_items, fmt.Errorf("No response from ElasticSearch")
+		return "", all_items, err
 	}
 	data, _ := MapFromJson(res)
 
