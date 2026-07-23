@@ -96,7 +96,7 @@ func main() {
 
 func ImportFiles(files Collections.List[FileSystem.FileInfo], base_url string) {
 	files.ForEach(func(item FileSystem.FileInfo) {
-		log.Print("Importing ", item.Name())
+		println("Importing " + item.Path)
 		items, err2 := GetDictFromFileJson(item)
 		if err2 != nil {
 			log.Fatal(err2)
@@ -107,7 +107,7 @@ func ImportFiles(files Collections.List[FileSystem.FileInfo], base_url string) {
 		index_url := base_url + index_name
 
 		for i, item := range all_items {
-			log.Print("Importing item #", i)
+			println("Importing item #" + Convert.IntToString(i))
 			err := PutItemsToIndex(index_url, item.(map[string]any))
 			if err != nil {
 				log.Fatal(err)
@@ -120,11 +120,10 @@ func ImportFiles(files Collections.List[FileSystem.FileInfo], base_url string) {
 
 func PutItemsToIndex(index_url string, item map[string]any) error {
 	cur_url := index_url + "/_create/" + item["id"].(string)
-	res, err := Networking.HttpPost(cur_url, item)
+	_, err := Networking.HttpPost(cur_url, item)
 	if err != nil {
 		return err
 	}
-	println(res)
 	return nil
 }
 
@@ -227,7 +226,7 @@ func GetFiles() (Collections.List[FileSystem.FileInfo], error) {
 		return files, err
 	}
 
-	log.Printf("Found {%d} files", files.Size())
+	log.Printf("Found %d files", files.Size())
 
 	return files, nil
 }
