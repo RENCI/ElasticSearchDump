@@ -139,6 +139,13 @@ func ImportFiles(files Collections.List[FileSystem.FileInfo], base_url string) {
 
 		for i, item := range all_items {
 			println("Importing item #" + Convert.IntToString(i))
+			if i == 1 {
+				err2 := SetRefresh(index_url, "-1")
+				if err2 != nil {
+					log.Fatal(err2)
+					return
+				}
+			}
 			err := PutItemsToIndex(index_url, item.(map[string]any))
 			if err != nil {
 				log.Fatal(err)
@@ -146,7 +153,30 @@ func ImportFiles(files Collections.List[FileSystem.FileInfo], base_url string) {
 			}
 		}
 
+		err3 := SetRefresh(index_url, "1s")
+		if err3 != nil {
+			log.Fatal(err3)
+		}
+
 	})
+}
+
+func SetRefresh(index_url string, interval string) error {
+	url := index_url + "/_settings"
+	payload := map[string]any{
+		"index": map[string]any{
+			"refresh_interval": interval,
+		},
+	}
+
+	status, body, err := Networking.HttpPut(url, payload)
+	if err != nil {
+		return fmt.Errorf("request error refresh on %s: %w", index_url, err)
+	}
+	if status != 200 {
+		return fmt.Errorf("failed to update refresh on %s (status %d): %s", index_url, status, body)
+	}
+	return nil
 }
 
 func PutItemsToIndex(index_url string, item map[string]any) error {
