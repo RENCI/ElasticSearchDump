@@ -140,6 +140,7 @@ func ImportFiles(files Collections.List[FileSystem.FileInfo], base_url string) {
 		for i, item := range all_items {
 			println("Importing item #" + Convert.IntToString(i))
 			if i == 1 {
+				println("DISABLING INDEX REFRESH " + index_url)
 				err2 := SetRefresh(index_url, "-1")
 				if err2 != nil {
 					log.Fatal(err2)
@@ -153,6 +154,7 @@ func ImportFiles(files Collections.List[FileSystem.FileInfo], base_url string) {
 			}
 		}
 
+		println("ENABLING INDEX REFRESH " + index_url)
 		err3 := SetRefresh(index_url, "1s")
 		if err3 != nil {
 			log.Fatal(err3)
