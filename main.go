@@ -32,6 +32,7 @@ var (
 	base_url          string
 	action            *string
 	https             *bool
+	deleteindex       *string
 )
 
 func main() {
@@ -49,6 +50,7 @@ func main() {
 	https = flag.Bool("https", true, "Use HTTPS")
 	path = flag.String("path", "./output", "path")
 	action = flag.String("action", "", "export or import")
+	deleteindex = flag.String("deleteindex", "", "delete index before import")
 
 	flag.Parse()
 
@@ -78,6 +80,19 @@ func main() {
 			}
 		}
 	} else if *action == "import" {
+		if len(*deleteindex) != 0 {
+			index := strings.Split(*deleteindex, " ")
+
+			for _, s := range index {
+				cur_index := strings.TrimSpace(s)
+
+				if len(cur_index) == 0 {
+					continue
+				}
+
+				DeleteIndex(cur_index)
+			}
+		}
 		files, err := GetFiles()
 
 		if err != nil {
@@ -92,6 +107,22 @@ func main() {
 
 	println("ElasticSearchDump finished")
 
+}
+
+func DeleteIndex(index string) {
+	status, body, err := Networking.HttpDelete(base_url + index)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	switch status {
+	case 200:
+		fmt.Println("Deleted:", string(body))
+	case 404:
+		fmt.Println("Index not found:", string(body))
+	default:
+		fmt.Printf("Unexpected status %d: %s\n", status, body)
+	}
 }
 
 func ImportFiles(files Collections.List[FileSystem.FileInfo], base_url string) {
@@ -120,7 +151,7 @@ func ImportFiles(files Collections.List[FileSystem.FileInfo], base_url string) {
 
 func PutItemsToIndex(index_url string, item map[string]any) error {
 	cur_url := index_url + "/_create/" + item["id"].(string)
-	_, err := Networking.HttpPost(cur_url, item)
+	_, _, err := Networking.HttpPost(cur_url, item)
 	if err != nil {
 		return err
 	}
@@ -258,7 +289,7 @@ func GetDictFromFileJson(file FileSystem.FileInfo) (map[string]any, error) {
 func GetNextBatch(base_url string, scroll_id string) (Collections.List[any], error) {
 	all_items := Collections.NewList[any]()
 	url_scroll := base_url + "_search/scroll"
-	res, err := Networking.HttpPost(url_scroll, map[string]any{"scroll_id": scroll_id, "scroll": "1m"})
+	_, res, err := Networking.HttpPost(url_scroll, map[string]any{"scroll_id": scroll_id, "scroll": "1m"})
 	if err != nil {
 		return all_items, err
 	}
@@ -275,7 +306,7 @@ func GetNextBatch(base_url string, scroll_id string) (Collections.List[any], err
 
 func GetFirstBatch(url string) (string, Collections.List[any], error) {
 	all_items := Collections.NewList[any]()
-	res, err := Networking.HttpGet(url)
+	_, res, err := Networking.HttpGet(url)
 
 	if res == nil {
 		return "", all_items, err
