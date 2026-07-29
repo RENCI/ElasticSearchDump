@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -190,7 +191,7 @@ func SetRefresh(index_url string, interval string) error {
 }
 
 func PutItemsToIndex(index_url string, item map[string]any) error {
-	cur_url := index_url + "/_create/" + item["id"].(string)
+	cur_url := index_url + "/_create/" + url.QueryEscape(item["id"].(string))
 	_, _, err := Networking.HttpPost(cur_url, item)
 	if err != nil {
 		return err
