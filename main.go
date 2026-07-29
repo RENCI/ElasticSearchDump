@@ -17,22 +17,23 @@ import (
 )
 
 var (
-	user              *string
-	password          *string
-	port              *string
-	host              *string
-	index_names       *string
-	split             *int
-	limit             *int
-	path              *string
-	timeout           *string
-	fetchsize         *string
-	curent_file_index = 1
-	wg                sync.WaitGroup
-	base_url          string
-	action            *string
-	https             *bool
-	deleteindex       *string
+	user               *string
+	password           *string
+	port               *string
+	host               *string
+	index_names        *string
+	split              *int
+	limit              *int
+	path               *string
+	timeout            *string
+	fetchsize          *string
+	current_file_index = 1
+	wg                 sync.WaitGroup
+	base_url           string
+	action             *string
+	https              *bool
+	deleteindex        *string
+	disabled_reindex   map[string]bool = map[string]bool{}
 )
 
 func main() {
@@ -126,6 +127,15 @@ func DeleteIndex(index string) {
 }
 
 func ImportFiles(files Collections.List[FileSystem.FileInfo], base_url string) {
+	defer func() {
+		for k, _ := range disabled_reindex {
+			err := SetRefresh(k, "1m")
+			if err != nil {
+				log.Print(err)
+			}
+		}
+	}()
+
 	files.ForEach(func(item FileSystem.FileInfo) {
 		println("Importing " + item.Path)
 		items, err2 := GetDictFromFileJson(item)
@@ -140,11 +150,15 @@ func ImportFiles(files Collections.List[FileSystem.FileInfo], base_url string) {
 		for i, item := range all_items {
 			println("Importing item #" + Convert.IntToString(i))
 			if i == 1 {
-				println("DISABLING INDEX REFRESH " + index_url)
-				err2 := SetRefresh(index_url, "-1")
-				if err2 != nil {
-					log.Fatal(err2)
-					return
+				if _, ok := disabled_reindex[index_url]; !ok {
+					println("DISABLING INDEX REFRESH")
+					disabled_reindex[index_url] = true
+
+					err2 := SetRefresh(index_url, "-1")
+					if err2 != nil {
+						log.Fatal(err2)
+						return
+					}
 				}
 			}
 			err := PutItemsToIndex(index_url, item.(map[string]any))
@@ -152,12 +166,6 @@ func ImportFiles(files Collections.List[FileSystem.FileInfo], base_url string) {
 				log.Fatal(err)
 				return
 			}
-		}
-
-		println("ENABLING INDEX REFRESH " + index_url)
-		err3 := SetRefresh(index_url, "1s")
-		if err3 != nil {
-			log.Fatal(err3)
 		}
 
 	})
@@ -270,14 +278,14 @@ func GetAndSaveInMultipleFiles(scroll_url string, index_name string) {
 }
 
 func SaveToFile(index_name string, items Collections.List[any]) {
-	output_path := FileSystem.Path.Combine(*path, index_name+"_"+fmt.Sprintf("%06d", curent_file_index)+"_export"+".json")
+	output_path := FileSystem.Path.Combine(*path, fmt.Sprintf("%06d", current_file_index)+"_"+index_name+".json")
 	all_items_dict := map[string]any{
 		"index_name": index_name,
 		"all_hits":   items.ToSlice(),
 	}
 	SaveDictToFileJson(all_items_dict, output_path)
-	println(Convert.IntToString(curent_file_index) + " Saved to " + output_path)
-	curent_file_index++
+	println(Convert.IntToString(current_file_index) + " Saved to " + output_path)
+	current_file_index++
 }
 
 func GetFiles() (Collections.List[FileSystem.FileInfo], error) {
