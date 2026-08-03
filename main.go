@@ -182,7 +182,8 @@ func SetRefresh(index_url string, interval string) error {
 }
 
 func PutItemsToIndex(index_url string, item map[string]any) error {
-	cur_url := index_url + "/_create/" + url.QueryEscape(item["id"].(string))
+	cur_url := index_url + "/_create/" + url.QueryEscape(item["es___id"].(string))
+	delete(item, "es___id")
 	_, _, err := Networking.HttpPost(cur_url, item)
 	if err != nil {
 		return err
@@ -333,7 +334,9 @@ func GetFirstBatch(url string) (string, Collections.List[any], error) {
 func GetItemsFromResults(data map[string]any, all_items Collections.List[any]) {
 	hits := data["hits"].(map[string]any)["hits"].([]any)
 	for _, hit := range hits {
-		all_items.Add(hit.(map[string]any)["_source"])
+		item := hit.(map[string]any)["_source"]
+		item.(map[string]interface{})["es___id"] = hit.(map[string]any)["_id"].(string)
+		all_items.Add((item))
 	}
 }
 
