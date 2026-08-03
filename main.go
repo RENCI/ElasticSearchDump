@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -129,6 +130,7 @@ func DeleteIndex(index string) {
 
 func ImportFiles(files Collections.List[FileSystem.FileInfo], base_url string) {
 	defer func() {
+		println("ENABLING INDEX REFRESH")
 		for k, _ := range disabled_reindex {
 			err := SetRefresh(k, "1m")
 			if err != nil {
@@ -203,6 +205,7 @@ func GetAndSaveInOneFile(scroll_url string, index_name string) {
 	scroll_id, all_items, err := GetFirstBatch(scroll_url)
 
 	if err != nil {
+		log.Print(index_name)
 		log.Fatal(err)
 		return
 	}
@@ -237,6 +240,7 @@ func GetAndSaveInMultipleFiles(scroll_url string, index_name string) {
 		scroll_id, all_items, err := GetFirstBatch(scroll_url)
 
 		if err != nil {
+			log.Print(index_name)
 			log.Fatal(err)
 			return
 		}
@@ -353,6 +357,11 @@ func GetFirstBatch(url string) (string, Collections.List[any], error) {
 		return "", all_items, err
 	}
 	data, _ := MapFromJson(res)
+
+	if data["_scroll_id"] == nil {
+
+		return "", all_items, errors.New("Could not find scroll_id. Check index name")
+	}
 
 	scroll_id := data["_scroll_id"].(string)
 	println("scroll_id:" + scroll_id)
