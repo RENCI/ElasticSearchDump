@@ -118,15 +118,7 @@ func DeleteIndex(index string) {
 }
 
 func ImportFiles(files Collections.List[FileSystem.FileInfo], base_url string) {
-	defer func() {
-		println("ENABLING INDEX REFRESH")
-		for k, _ := range disabled_reindex {
-			err := SetRefresh(k, "1m")
-			if err != nil {
-				log.Print(err)
-			}
-		}
-	}()
+	defer EnableIndexRefresh()
 
 	files.ForEach(func(item FileSystem.FileInfo) {
 		println("Importing " + item.Path)
@@ -155,6 +147,7 @@ func ImportFiles(files Collections.List[FileSystem.FileInfo], base_url string) {
 			}
 			err := PutItemsToIndex(index_url, item.(map[string]any))
 			if err != nil {
+				EnableIndexRefresh()
 				log.Fatal(err)
 				return
 			}
@@ -179,6 +172,16 @@ func SetRefresh(index_url string, interval string) error {
 		return fmt.Errorf("failed to update refresh on %s (status %d): %s", index_url, status, body)
 	}
 	return nil
+}
+
+func EnableIndexRefresh() {
+	println("ENABLING INDEX REFRESH")
+	for k, _ := range disabled_reindex {
+		err := SetRefresh(k, "1m")
+		if err != nil {
+			log.Print(err)
+		}
+	}
 }
 
 func PutItemsToIndex(index_url string, item map[string]any) error {
