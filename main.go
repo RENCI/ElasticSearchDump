@@ -182,11 +182,16 @@ func SetRefresh(index_url string, interval string) error {
 }
 
 func PutItemsToIndex(index_url string, item map[string]any) error {
-	cur_url := index_url + "/_create/" + url.QueryEscape(item["es___id"].(string))
+	es_id := item["es___id"].(string)
+	cur_url := index_url + "/_create/" + url.QueryEscape(es_id)
 	delete(item, "es___id")
-	_, _, err := Networking.HttpPost(cur_url, item)
+	status, resp, err := Networking.HttpPost(cur_url, item)
+
 	if err != nil {
 		return err
+	}
+	if status != 200 && status != 201 {
+		return fmt.Errorf("failed to index item %s (status %d): %s", es_id, status, resp)
 	}
 	return nil
 }
