@@ -24,6 +24,7 @@ var (
 	port               *string
 	host               *string
 	index_names        *string
+	new_index_names    *string
 	split              *int
 	limit              *int
 	path               *string
@@ -34,7 +35,6 @@ var (
 	base_url           string
 	action             *string
 	https              *bool
-	deleteindex        *string
 	disabled_reindex   map[string]bool = map[string]bool{}
 )
 
@@ -46,6 +46,7 @@ func main() {
 	port = flag.String("port", "9200", "ES port")
 	host = flag.String("host", "localhost", "ES host")
 	index_names = flag.String("index", "", "index names")
+	new_index_names = flag.String("newindex", "", "new index names")
 	split = flag.Int("split", 1000, "split size")
 	limit = flag.Int("limit", 0, "limit")
 	timeout = flag.String("timeout", "1m", "timeout")
@@ -53,49 +54,37 @@ func main() {
 	https = flag.Bool("https", true, "Use HTTPS")
 	path = flag.String("path", "./output", "path")
 	action = flag.String("action", "", "export or import")
-	deleteindex = flag.String("deleteindex", "", "delete index before import")
 
 	flag.Parse()
 
+	base_url = *user + ":" + *password + "@" + *host + ":" + *port + "/"
 	if *https == true {
-		base_url = "https://" + *user + ":" + *password + "@" + *host + ":" + *port + "/"
+		base_url = "https://" + base_url
 	} else {
-		base_url = "http://" + *user + ":" + *password + "@" + *host + ":" + *port + "/"
+		base_url = "http://" + base_url
 	}
 
 	if *action == "export" {
-		index := strings.Split(*index_names, " ")
+		indices := strings.Split(*index_names, " ")
+		new_indices := strings.Split(*new_index_names, " ")
 
-		for _, s := range index {
+		for i, s := range indices {
 			cur_index := strings.TrimSpace(s)
+			new_cur_index := cur_index
+
+			if *new_index_names != "" {
+				// if new index name provided
+				new_cur_index = strings.TrimSpace(new_indices[i])
+			}
 
 			if len(cur_index) == 0 {
 				continue
 			}
 
 			scroll_url := base_url + cur_index + "/_search?scroll=" + *timeout + "&size=" + *fetchsize
-
-			if *split == 0 {
-				GetAndSaveInOneFile(scroll_url, cur_index)
-
-			} else {
-				GetAndSaveInMultipleFiles(scroll_url, cur_index)
-			}
+			GetAndSaveInMultipleFiles(scroll_url, cur_index, new_cur_index)
 		}
 	} else if *action == "import" {
-		if len(*deleteindex) != 0 {
-			index := strings.Split(*deleteindex, " ")
-
-			for _, s := range index {
-				cur_index := strings.TrimSpace(s)
-
-				if len(cur_index) == 0 {
-					continue
-				}
-
-				DeleteIndex(cur_index)
-			}
-		}
 		files, err := GetFiles()
 
 		if err != nil {
@@ -201,37 +190,7 @@ func PutItemsToIndex(index_url string, item map[string]any) error {
 	return nil
 }
 
-func GetAndSaveInOneFile(scroll_url string, index_name string) {
-	scroll_id, all_items, err := GetFirstBatch(scroll_url)
-
-	if err != nil {
-		log.Print(index_name)
-		log.Fatal(err)
-		return
-	}
-
-	i := 1
-	println(Convert.IntToString(i) + " Loaded " + Convert.IntToString(all_items.Size()) + " items")
-	i++
-	for {
-		items, err := GetNextBatch(base_url, scroll_id)
-		items.ForEach(func(item interface{}) { all_items.Add(item) })
-
-		if err != nil {
-			log.Fatal(err)
-		}
-		if items.Size() == 0 {
-			break
-		}
-
-		println(Convert.IntToString(i) + " Loaded " + Convert.IntToString(all_items.Size()) + " items")
-		i++
-	}
-	println(all_items.Size())
-	SaveToFile(index_name, all_items)
-}
-
-func GetAndSaveInMultipleFiles(scroll_url string, index_name string) {
+func GetAndSaveInMultipleFiles(scroll_url string, index_name string, new_index_name string) {
 	ch := make(chan any, *split)
 
 	wg.Add(2)
@@ -269,12 +228,12 @@ func GetAndSaveInMultipleFiles(scroll_url string, index_name string) {
 		for item := range ch {
 			all_items.Add(item)
 			if all_items.Size() == *split {
-				SaveToFile(index_name, all_items)
+				SaveToFile(new_index_name, all_items)
 				all_items.Clear()
 			}
 		}
 		if all_items.Size() > 0 {
-			SaveToFile(index_name, all_items)
+			SaveToFile(new_index_name, all_items)
 			all_items.Clear()
 		}
 	}()
