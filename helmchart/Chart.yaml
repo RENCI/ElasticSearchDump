@@ -1,0 +1,10 @@
+apiVersion: v2
+name: esdump
+description: chart for ElasticSearchDump.
+type: application
+
+version: 1.0.0
+engine: gotpl
+
+appVersion: "v1.0.0"
+

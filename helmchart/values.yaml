@@ -1,0 +1,34 @@
+fullnameOverride: ""
+nameOverride: ""
+
+
+esdumpexportjob:
+  enabled: "false"
+  ElasticSearchDumpFile: "https://github.com/RENCI/ElasticSearchDump/releases/download/2/esdump.tar.xz"
+  ElasticPort: "9200"
+  ElasticHost: "elasticsearch-master"
+  Index: "variables_index concepts_index studies_index sections_index kg_index"
+  NewIndex: "test_variables_index test_concepts_index test_studies_index test_sections_index test_kg_index"
+  ReleaseName: "search"
+  ElasticKeyRefName: "search-elastic-secret"
+  LakeFSKeyRefName: "search-data-config"
+
+
+esdumpimportjob:
+  enabled: "true"
+  ElasticSearchDumpFile: "https://github.com/RENCI/ElasticSearchDump/releases/download/2/esdump.tar.xz"
+  ElasticHostFull: "https://elasticsearch-master:9200"
+  ElasticHost: "elasticsearch-master"
+  ElasticPort: "9200"
+  ReleaseName: "search"
+  FileToImport: "2026-08-21_18-32-26.tar.gz"
+  ElasticKeyRefName: "search-elastic-secret"
+  LakeFSKeyRefName: "search-data-config"
+  DUG_BRANCH_NAME: "develop"
+  IN_delete_existing_indices: "true"
+  IN_studies_index_name: "test_studies_index"
+  IN_variables_index_name: "test_variables_index"
+  IN_sections_index_name: "test_sections_index"
+  IN_concepts_index_name: "test_concepts_index"
+  IN_kg_index_name: "test_kg_index"
+
